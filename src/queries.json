@@ -1,0 +1,8 @@
+{
+  "createGame":    "INSERT INTO partida (jugador_blancas, jugador_negras) VALUES (:blancas, :negras) RETURNING id",
+  "saveMove":      "INSERT INTO movimiento (partida_id, turno, color, movimiento, en_jaque) VALUES (:partida_id, :turno, :color, :movimiento, :en_jaque)",
+  "endGame":       "UPDATE partida SET ganador = :ganador, resultado = :resultado, total_turnos = :turnos, fecha_fin = NOW() WHERE id = :id",
+  "getGame":       "SELECT * FROM partida WHERE id = :id",
+  "getHistory":    "SELECT * FROM movimiento WHERE partida_id = :id ORDER BY turno ASC",
+  "getLastGames":  "SELECT * FROM partida ORDER BY fecha_inicio DESC LIMIT 10"
+}
