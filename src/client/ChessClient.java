@@ -15,8 +15,7 @@ import java.util.Optional;
 
 public class ChessClient {
 
-    private static final String HOST = "localhost";
-    private static final int    PORT = 5000;
+    private static final int PORT = 5000;
 
     private final Stage        stage;
     private Socket             socket;
@@ -32,7 +31,6 @@ public class ChessClient {
     public void connect() {
         boardView = new ChessBoardView();
 
-        // Callback de movimiento — envía al servidor cuando el jugador hace clic
         boardView.setMoveCallback(move -> {
             if (myTurn) {
                 sendMove(move);
@@ -45,17 +43,29 @@ public class ChessClient {
         stage.setResizable(false);
         stage.show();
 
-        // Conectar al servidor en hilo separado para no bloquear la UI
+        // Pedir IP del servidor al jugador
+        TextInputDialog dialog = new TextInputDialog("localhost");
+        dialog.setTitle("Conectar al servidor");
+        dialog.setHeaderText("Ingresa la IP del servidor");
+        dialog.setContentText("IP:");
+
+        Optional<String> result = dialog.showAndWait();
+        String host = result.orElse("localhost").trim();
+
+        boardView.setStatus("Conectando a " + host + "...");
+
+        // Conectar en hilo separado para no bloquear la UI
+        final String finalHost = host;
         new Thread(() -> {
             try {
-                socket = new Socket(HOST, PORT);
+                socket = new Socket(finalHost, PORT);
                 out    = new PrintWriter(socket.getOutputStream(), true);
                 in     = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                boardView.setStatus("Conectado — esperando rival...");
+                Platform.runLater(() -> boardView.setStatus("Conectado — esperando rival..."));
                 listenServer();
             } catch (IOException e) {
                 Platform.runLater(() ->
-                    boardView.setStatus("No se pudo conectar al servidor")
+                    boardView.setStatus("No se pudo conectar a " + finalHost + ":" + PORT)
                 );
             }
         }).start();
@@ -95,7 +105,7 @@ public class ChessClient {
                 boardView.setStatus("Tu turno — haz clic en una pieza");
                 break;
             case "ERROR":
-                myTurn = true; // permitir reintentar
+                myTurn = true;
                 Platform.runLater(() -> showAlert("Movimiento inválido", parts[1]));
                 break;
         }
