@@ -143,21 +143,35 @@ public class Board {
 
     public boolean wouldLeaveKingInCheck(int fromRow, int fromCol, int toRow, int toCol, Piece.Color color) {
         Piece[][] copy = copyGrid();
-        copy[toRow][toCol]     = copy[fromRow][fromCol];
+        Piece moving = copy[fromRow][fromCol];
+        if (moving == null) return true;
+
+        int savedRow = moving.getRow();
+        int savedCol = moving.getCol();
+
+        copy[toRow][toCol]     = moving;
         copy[fromRow][fromCol] = null;
-        if (copy[toRow][toCol] != null) copy[toRow][toCol].setPosition(toRow, toCol);
 
-        int[] kingPos = findKingInGrid(copy, color);
-        if (kingPos == null) return true;
-        int kr = kingPos[0], kc = kingPos[1];
+        if (moving instanceof Pawn && fromCol != toCol && grid[toRow][toCol] == null) {
+            copy[fromRow][toCol] = null;
+        }
 
-        for (int r = 0; r < 8; r++)
-            for (int c = 0; c < 8; c++) {
-                Piece p = copy[r][c];
-                if (p != null && p.getColor() != color && p.canMoveTo(kr, kc, copy))
-                    return true;
-            }
-        return false;
+        moving.setPosition(toRow, toCol);
+        try {
+            int[] kingPos = findKingInGrid(copy, color);
+            if (kingPos == null) return true;
+            int kr = kingPos[0], kc = kingPos[1];
+
+            for (int r = 0; r < 8; r++)
+                for (int c = 0; c < 8; c++) {
+                    Piece p = copy[r][c];
+                    if (p != null && p.getColor() != color && p.canMoveTo(kr, kc, copy))
+                        return true;
+                }
+            return false;
+        } finally {
+            moving.setPosition(savedRow, savedCol);
+        }
     }
 
     public boolean canCastle(Piece.Color color, boolean kingSide) {

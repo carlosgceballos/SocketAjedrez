@@ -3,6 +3,7 @@ package client;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.TextInputDialog;
 import javafx.stage.Stage;
 
@@ -22,7 +23,8 @@ public class ChessClient {
     private PrintWriter        out;
     private BufferedReader     in;
     private ChessBoardView     boardView;
-    private boolean            myTurn = false;
+    private boolean            myTurn             = false;
+    private boolean            drawResponseOpen   = false;
 
     public ChessClient(Stage stage) {
         this.stage = stage;
@@ -37,13 +39,19 @@ public class ChessClient {
             }
         });
 
-        Scene scene = new Scene(boardView, 560, 650);
+        boardView.setActionCallbacks(
+            this::onResignClicked,
+            this::onOfferDrawClicked,
+            this::onAcceptDrawClicked,
+            this::onDeclineDrawClicked
+        );
+
+        Scene scene = new Scene(boardView, 580, 720);
         stage.setTitle("Ajedrez en Red");
         stage.setScene(scene);
         stage.setResizable(false);
         stage.show();
 
-        // Pedir IP del servidor al jugador
         TextInputDialog dialog = new TextInputDialog("localhost");
         dialog.setTitle("Conectar al servidor");
         dialog.setHeaderText("Ingresa la IP del servidor");
@@ -54,7 +62,6 @@ public class ChessClient {
 
         boardView.setStatus("Conectando a " + host + "...");
 
-        // Conectar en hilo separado para no bloquear la UI
         final String finalHost = host;
         new Thread(() -> {
             try {
@@ -88,25 +95,47 @@ public class ChessClient {
 
         switch (type) {
             case "STATUS":
-                handleStatus(parts);
+                Platform.runLater(() -> handleStatus(parts));
                 break;
             case "BOARD":
                 boardView.updateBoard(parts[1]);
                 break;
             case "TURN":
-                myTurn = parts[1].equals(boardView.getMyColor());
-                boardView.setTurn(parts[1]);
+                Platform.runLater(() -> {
+                    myTurn = parts[1].equals(boardView.getMyColor());
+                    boardView.setTurn(parts[1]);
+                    refreshPlayActions();
+                });
                 break;
             case "MOVE":
-                boardView.setStatus("Movimiento: " + parts[1]);
+                Platform.runLater(() -> boardView.setStatus("Movimiento: " + parts[1]));
                 break;
             case "INPUT":
-                myTurn = true;
-                boardView.setStatus("Tu turno — haz clic en una pieza");
+                Platform.runLater(() -> {
+                    myTurn = true;
+                    boardView.setStatus("Tu turno — haz clic en una pieza");
+                    refreshPlayActions();
+                });
+                break;
+            case "DRAW_REQUEST":
+                drawResponseOpen = true;
+                Platform.runLater(() -> {
+                    boardView.setDrawRequestMode(true);
+                    boardView.setStatus("Te han ofrecido tablas.");
+                    refreshPlayActions();
+                });
                 break;
             case "ERROR":
-                myTurn = true;
-                Platform.runLater(() -> showAlert("Movimiento inválido", parts[1]));
+                Platform.runLater(() -> {
+                    String err = parts.length > 1 ? parts[1] : "";
+                    if (drawResponseOpen) {
+                        showAlert("Respuesta inválida", err);
+                    } else {
+                        myTurn = true;
+                        showAlert("Movimiento inválido", err);
+                        refreshPlayActions();
+                    }
+                });
                 break;
         }
     }
@@ -119,12 +148,20 @@ public class ChessClient {
             case "START":
                 String color = msg.contains("BLANCAS") ? "WHITE" : "BLACK";
                 boardView.setMyColor(color);
+                boardView.setMatchStarted(true);
                 boardView.setStatus("Partida iniciada — Juegas con " +
                     (color.equals("WHITE") ? "BLANCAS" : "NEGRAS"));
+                refreshPlayActions();
                 break;
             case "WAITING":
                 boardView.setStatus(msg);
                 myTurn = false;
+                refreshPlayActions();
+                break;
+            case "DRAW_WAIT":
+                myTurn = false;
+                boardView.setStatus(msg);
+                refreshPlayActions();
                 break;
             case "CHECK":
                 boardView.setStatus("¡JAQUE! " + msg);
@@ -132,14 +169,31 @@ public class ChessClient {
             case "CHECKMATE":
             case "STALEMATE":
             case "RESIGNED":
+            case "AGREED_DRAW":
             case "DISCONNECT":
                 myTurn = false;
+                drawResponseOpen = false;
+                boardView.setMatchStarted(false);
+                boardView.setDrawRequestMode(false);
                 boardView.setStatus(msg);
-                Platform.runLater(() -> showAlert("Partida finalizada", msg));
+                refreshPlayActions();
+                showAlert("Partida finalizada", msg);
+                break;
+            case "DRAW_DECLINED":
+                drawResponseOpen = false;
+                Platform.runLater(() -> {
+                    boardView.setDrawRequestMode(false);
+                    boardView.setStatus(msg);
+                });
                 break;
             default:
                 if (!msg.isEmpty()) boardView.setStatus(msg);
         }
+    }
+
+    private void refreshPlayActions() {
+        boolean enable = boardView.isMatchStarted() && myTurn && !drawResponseOpen;
+        boardView.setPlayActionsEnabled(enable);
     }
 
     private void sendMove(String move) {
@@ -147,7 +201,59 @@ public class ChessClient {
             myTurn = false;
             out.println(move);
             boardView.setStatus("Movimiento enviado: " + move);
+            refreshPlayActions();
         }
+    }
+
+    private void sendLine(String line) {
+        if (out != null) {
+            out.println(line);
+        }
+    }
+
+    private void onResignClicked() {
+        if (!boardView.isMatchStarted() || !myTurn) return;
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Rendirse");
+        alert.setHeaderText(null);
+        alert.setContentText("¿Seguro que quieres abandonar la partida?");
+        Optional<ButtonType> r = alert.showAndWait();
+        if (r.isPresent() && r.get() == ButtonType.OK) {
+            myTurn = false;
+            sendLine("RESIGN");
+            boardView.setStatus("Te has rendido.");
+            refreshPlayActions();
+        }
+    }
+
+    private void onOfferDrawClicked() {
+        if (!boardView.isMatchStarted() || !myTurn) return;
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Ofrecer tablas");
+        alert.setHeaderText(null);
+        alert.setContentText("¿Ofrecer tablas al rival?");
+        Optional<ButtonType> r = alert.showAndWait();
+        if (r.isPresent() && r.get() == ButtonType.OK) {
+            myTurn = false;
+            sendLine("OFFER_DRAW");
+            refreshPlayActions();
+        }
+    }
+
+    private void onAcceptDrawClicked() {
+        if (!drawResponseOpen) return;
+        drawResponseOpen = false;
+        boardView.setDrawRequestMode(false);
+        sendLine("ACCEPT_DRAW");
+        refreshPlayActions();
+    }
+
+    private void onDeclineDrawClicked() {
+        if (!drawResponseOpen) return;
+        drawResponseOpen = false;
+        boardView.setDrawRequestMode(false);
+        sendLine("DECLINE_DRAW");
+        refreshPlayActions();
     }
 
     private void showAlert(String title, String message) {

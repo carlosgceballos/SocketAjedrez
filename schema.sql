@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS partida (
     jugador_blancas  VARCHAR(50) NOT NULL,
     jugador_negras   VARCHAR(50) NOT NULL,
     ganador          VARCHAR(10),          -- 'WHITE', 'BLACK', 'DRAW', NULL si en curso
-    resultado        VARCHAR(20),          -- 'CHECKMATE', 'STALEMATE', 'RESIGNED'
+    resultado        VARCHAR(20),          -- 'CHECKMATE', 'STALEMATE', 'RESIGNED', 'AGREED_DRAW'
     total_turnos     INT DEFAULT 0,
     fecha_inicio     TIMESTAMP DEFAULT NOW(),
     fecha_fin        TIMESTAMP

@@ -3,8 +3,10 @@ package client;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
@@ -32,6 +34,13 @@ public class ChessBoardView extends VBox {
     private int                 selectedCol = -1;
     private String              myColor     = null;
     private String[][]          currentBoard; // estado actual del tablero
+    private boolean             drawRequestPending;
+    private boolean             matchStarted;
+
+    private final Button        btnResign      = new Button("Rendirse");
+    private final Button        btnOfferDraw   = new Button("Ofrecer tablas");
+    private final Button        btnAcceptDraw  = new Button("Aceptar tablas");
+    private final Button        btnDeclineDraw = new Button("Rechazar");
 
     public interface MoveCallback {
         void onMove(String algebraic);
@@ -40,6 +49,7 @@ public class ChessBoardView extends VBox {
     public ChessBoardView() {
         buildBoard();
         buildStatusBar();
+        buildActionBar();
 
         setSpacing(8);
         setPadding(new Insets(16));
@@ -125,7 +135,57 @@ public class ChessBoardView extends VBox {
         getChildren().addAll(statusLabel, turnLabel);
     }
 
+    private void buildActionBar() {
+        btnResign.setDisable(true);
+        btnOfferDraw.setDisable(true);
+        btnAcceptDraw.setVisible(false);
+        btnDeclineDraw.setVisible(false);
+
+        HBox row = new HBox(12, btnResign, btnOfferDraw, btnAcceptDraw, btnDeclineDraw);
+        row.setAlignment(Pos.CENTER);
+
+        getChildren().add(row);
+    }
+
+    public void setActionCallbacks(Runnable onResign, Runnable onOfferDraw,
+            Runnable onAcceptDraw, Runnable onDeclineDraw) {
+        btnResign.setOnAction(e -> onResign.run());
+        btnOfferDraw.setOnAction(e -> onOfferDraw.run());
+        btnAcceptDraw.setOnAction(e -> onAcceptDraw.run());
+        btnDeclineDraw.setOnAction(e -> onDeclineDraw.run());
+    }
+
+    /** Habilita rendirse / ofrecer tablas (solo con partida en curso y tu turno). */
+    public void setPlayActionsEnabled(boolean enabled) {
+        btnResign.setDisable(!enabled);
+        btnOfferDraw.setDisable(!enabled);
+    }
+
+    /** Modo respuesta a propuesta de tablas del rival. */
+    public void setDrawRequestMode(boolean pending) {
+        drawRequestPending = pending;
+        btnResign.setVisible(!pending);
+        btnOfferDraw.setVisible(!pending);
+        btnAcceptDraw.setVisible(pending);
+        btnDeclineDraw.setVisible(pending);
+        if (pending) {
+            btnAcceptDraw.setDisable(false);
+            btnDeclineDraw.setDisable(false);
+        }
+    }
+
+    public void setMatchStarted(boolean started) {
+        this.matchStarted = started;
+        if (!started) {
+            setPlayActionsEnabled(false);
+            setDrawRequestMode(false);
+        }
+    }
+
+    public boolean isMatchStarted() { return matchStarted; }
+
     private void handleCellClick(int row, int col) {
+        if (drawRequestPending) return;
         if (moveCallback == null || myColor == null) return;
 
         // Verificar que sea el turno del jugador
@@ -160,7 +220,8 @@ public class ChessBoardView extends VBox {
         }
     }
 
-    // Construye la notación algebraica del movimiento
+    // Construye el movimiento: siempre origen+destino (p. ej. a7a5) para que el
+    // servidor no elija otra pieza cuando la SAN del peón es solo la casilla de llegada.
     private String buildMove(int fromRow, int fromCol, int toRow, int toCol) {
         if (currentBoard == null) return null;
 
@@ -171,38 +232,22 @@ public class ChessBoardView extends VBox {
         if (parts.length < 2) return null;
         String pieceName = parts[1]; // King, Queen, Rook, etc.
 
-        String to = toAlgebraic(toRow, toCol);
+        String from = toAlgebraic(fromRow, fromCol);
+        String to   = toAlgebraic(toRow, toCol);
 
-        // Enroque
+        // Enroque (el servidor sigue esperando O-O / O-O-O)
         if (pieceName.equals("King")) {
             if (fromCol == 4 && toCol == 6) return "O-O";
             if (fromCol == 4 && toCol == 2) return "O-O-O";
         }
 
-        // Captura
-        String targetCell = currentBoard[7 - toRow][toCol];
-        boolean isCapture = !targetCell.equals(".");
-
         if (pieceName.equals("Pawn")) {
-            if (isCapture) {
-                return (char)('a' + fromCol) + "x" + to;
-            }
-            return to;
+            boolean white = parts[0].equals("WHITE");
+            if ((white && toRow == 7) || (!white && toRow == 0))
+                return from + to + "q";
         }
 
-        String symbol = pieceSymbol(pieceName);
-        return symbol + (isCapture ? "x" : "") + to;
-    }
-
-    private String pieceSymbol(String name) {
-        switch (name) {
-            case "King":   return "K";
-            case "Queen":  return "Q";
-            case "Rook":   return "R";
-            case "Bishop": return "B";
-            case "Knight": return "N";
-            default:       return "";
-        }
+        return from + to;
     }
 
     private String toAlgebraic(int row, int col) {
@@ -265,6 +310,8 @@ public class ChessBoardView extends VBox {
                 shadow.setTranslateX(1.5);
                 shadow.setTranslateY(1.5);
 
+                shadow.setMouseTransparent(true);
+                pieceText.setMouseTransparent(true);
                 cell.getChildren().addAll(shadow, pieceText);
             }
         }

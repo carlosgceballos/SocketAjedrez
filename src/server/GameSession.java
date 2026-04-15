@@ -118,7 +118,38 @@ public class GameSession implements Runnable {
     }
 
     private void gameLoop() throws IOException {
+        Piece.Color pendingOfferFrom = null;
+
         while (!state.isOver()) {
+            if (pendingOfferFrom != null) {
+                Piece.Color responder = pendingOfferFrom == Piece.Color.WHITE
+                    ? Piece.Color.BLACK
+                    : Piece.Color.WHITE;
+                BufferedReader responderIn  = responder == Piece.Color.WHITE ? whiteIn  : blackIn;
+                PrintWriter    responderOut = responder == Piece.Color.WHITE ? whiteOut : blackOut;
+
+                String input = responderIn.readLine();
+                if (input == null) {
+                    broadcast("STATUS|DISCONNECT|El rival se desconectó.");
+                    break;
+                }
+                input = input.trim();
+
+                if (input.equalsIgnoreCase("ACCEPT_DRAW")) {
+                    state.agreedDraw();
+                    broadcast("STATUS|AGREED_DRAW|" + state.getStatusMessage());
+                    break;
+                }
+                if (input.equalsIgnoreCase("DECLINE_DRAW")) {
+                    pendingOfferFrom = null;
+                    broadcast("STATUS|DRAW_DECLINED|El rival rechazó las tablas.");
+                    broadcast("TURN|" + state.getCurrentTurn());
+                    continue;
+                }
+                responderOut.println("ERROR|Responde ACCEPT_DRAW o DECLINE_DRAW.");
+                continue;
+            }
+
             Piece.Color    turn      = state.getCurrentTurn();
             PrintWriter    current   = turn == Piece.Color.WHITE ? whiteOut : blackOut;
             BufferedReader currentIn = turn == Piece.Color.WHITE ? whiteIn  : blackIn;
@@ -139,6 +170,13 @@ public class GameSession implements Runnable {
                 state.resign(turn);
                 broadcast("STATUS|RESIGNED|" + state.getStatusMessage());
                 break;
+            }
+
+            if (input.equalsIgnoreCase("OFFER_DRAW")) {
+                pendingOfferFrom = turn;
+                current.println("STATUS|DRAW_WAIT|Ofreciste tablas. Esperando respuesta del rival.");
+                waiting.println("DRAW_REQUEST|" + turn.name());
+                continue;
             }
 
             Move move = Move.fromAlgebraic(input, board.getGrid(), turn);

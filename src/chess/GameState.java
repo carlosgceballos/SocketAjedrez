@@ -10,7 +10,8 @@ public class GameState {
         CHECK,
         CHECKMATE,
         STALEMATE,
-        RESIGNED
+        RESIGNED,
+        AGREED_DRAW   // tablas por acuerdo entre jugadores
     }
 
     private Piece.Color currentTurn = Piece.Color.WHITE;
@@ -45,6 +46,11 @@ public class GameState {
             : Piece.Color.WHITE;
     }
 
+    public void agreedDraw() {
+        status = Status.AGREED_DRAW;
+        winner = null;
+    }
+
     private void switchTurn() {
         if (currentTurn == Piece.Color.BLACK) turnNumber++;
         currentTurn = currentTurn == Piece.Color.WHITE
@@ -55,7 +61,8 @@ public class GameState {
     public boolean isOver() {
         return status == Status.CHECKMATE
             || status == Status.STALEMATE
-            || status == Status.RESIGNED;
+            || status == Status.RESIGNED
+            || status == Status.AGREED_DRAW;
     }
 
     public Piece.Color getCurrentTurn() { return currentTurn; }
@@ -67,9 +74,10 @@ public class GameState {
         switch (status) {
             case CHECK:     return "¡Jaque!";
             case CHECKMATE: return "¡Jaque mate! Gana " + winner;
-            case STALEMATE: return "Tablas por ahogado.";
-            case RESIGNED:  return "Abandono. Gana " + winner;
-            default:        return "Turno de " + currentTurn;
+            case STALEMATE:   return "Tablas por ahogado.";
+            case AGREED_DRAW: return "Tablas acordadas.";
+            case RESIGNED:    return "Abandono. Gana " + winner;
+            default:          return "Turno de " + currentTurn;
         }
     }
 }
